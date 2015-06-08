@@ -1,0 +1,8 @@
+[package]
+name = "json_rpc"
+version = "0.0.1"
+authors = ["bcndanos <rinnegatobcn@gmail.com>"]
+
+[dependencies]
+asynchronous = "*"
+rustc-serialize = "0.3.15"
