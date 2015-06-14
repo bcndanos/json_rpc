@@ -2,7 +2,18 @@
 name = "json_rpc"
 version = "0.0.1"
 authors = ["bcndanos <rinnegatobcn@gmail.com>"]
+description = "JSON-RPC 2.0 Implementation"
+repository = "https://github.com/bcndanos/json_rpc"
+readme = "README.md"
+license = "Apache-2.0 / MIT"
+keywords = ["json", "rpc"]
 
 [dependencies]
 asynchronous = "*"
 rustc-serialize = "0.3.15"
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
+test = false
+bench = false
