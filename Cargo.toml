@@ -1,6 +1,6 @@
 [package]
 name = "json_rpc"
-version = "0.0.1"
+version = "0.1.0"
 authors = ["bcndanos <rinnegatobcn@gmail.com>"]
 description = "JSON-RPC 2.0 Implementation"
 repository = "https://github.com/bcndanos/json_rpc"

@@ -10,7 +10,7 @@ Currently in development.
 This is a basic example with two methods:
 
 ```rust
-#[macro_use]
+#[macro_use(rpc_method)]
 extern crate json_rpc;
 use json_rpc::{Server, Json, Error};
 
