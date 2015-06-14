@@ -2,6 +2,10 @@
 
 **JSON-RPC 2.0 Implementation in Rust**
 
+|Crate|Travis|
+|:------:|:-------:|
+|[![](http://meritbadge.herokuapp.com/json_rpc)](https://crates.io/crates/json_rpc)|[![Build Status](https://travis-ci.org/bcndanos/json_rpc.svg?branch=master)](https://travis-ci.org/bcndanos/json_rpc)|
+
 Currently in development.
 
 # Examples
