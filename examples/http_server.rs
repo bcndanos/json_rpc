@@ -13,7 +13,7 @@ use hyper::server::{Request,Response};
 
 
 fn main() {
-    println!("Started server on 10.0.2.15:8080");
+    println!("Started server on 127.0.0.1:8080");
 
     let mut rpc_server = RpcServer::new();
 
@@ -33,7 +33,7 @@ fn main() {
             },
             _ => *res.status_mut() = hyper::status::StatusCode::MethodNotAllowed
         }   
-    }).listen("10.0.2.15:8080").unwrap();
+    }).listen("127.0.0.1:8080").unwrap();
 
     println!("Stopped server!");
 
