@@ -1,9 +1,25 @@
 /*!
 # json rpc
 
-**JSON-RPC 2.0 Implementation in Rust**
+**[JSON-RPC 2.0 Implementation](http://www.jsonrpc.org/specification) in Rust**
+
+|Crate|Travis|
+|:------:|:-------:|
+|[![](http://meritbadge.herokuapp.com/json_rpc)](https://crates.io/crates/json_rpc)|[![Build Status](https://travis-ci.org/bcndanos/json_rpc.svg?branch=master)](https://travis-ci.org/bcndanos/json_rpc)|
+
+#Overview
 
 Currently in development.
+
+#License
+
+Dual-licensed to be compatible with the Rust project.
+
+Licensed under the Apache License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0 or the MIT license
+http://opensource.org/licenses/MIT, at your
+option. This file may not be copied, modified, or distributed
+except according to those terms.
 
 # Examples
 
@@ -30,14 +46,16 @@ fn main() {
     });    
 
     let str_request = "{\"jsonrpc\":\"2.0\",\"method\":\"Subtract\", \"params\":{\"oper1\":23, \"oper2\":4}, \"id\":2}".to_string();
-    rpc_server.request(str_request, |str_response| {
-        assert_eq!(str_response, "{\"id\":2,\"jsonrpc\":\"2.0\",\"result\":19}");
-    });
+    match rpc_server.request(str_request) {    
+        Some(str_response) => assert_eq!(str_response, "{\"id\":2,\"jsonrpc\":\"2.0\",\"result\":19}") ,
+        None => unreachable!(),
+    };
 
     let str_request = "{\"jsonrpc\":\"2.0\",\"method\":\"Multiply\", \"params\":[5, 6, 7], \"id\":3}".to_string();
-    rpc_server.request(str_request, |str_response| {
-        assert_eq!(str_response, "{\"id\":3,\"jsonrpc\":\"2.0\",\"result\":210}");
-    });
+    match rpc_server.request(str_request) {    
+        Some(str_response) => assert_eq!(str_response, "{\"id\":3,\"jsonrpc\":\"2.0\",\"result\":210}") ,
+        None => unreachable!(),
+    };
 }
 
 ``` 
@@ -49,7 +67,7 @@ extern crate rustc_serialize;
 
 pub use rustc_serialize as serialize;
 
-use asynchronous::Deferred;
+use asynchronous::{Deferred, Promise};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 pub use serialize::json::Json;
@@ -113,7 +131,69 @@ impl Server {
         self.methods.insert(method.to_string(), Arc::new(Box::new(f)));
     }
 
-    pub fn request<F>(&self, str_request:String, f_response:F) where F: FnOnce(String) + Send + 'static {
+    pub fn request(&self, str_request:String) -> Option<String> {
+        let data = match Json::from_str(&str_request) {
+            Ok(o) => o,
+            Err(_) => return Some(Server::response_error(-32700))
+        };
+        let obj = match data.as_object() {
+            Some(s) => s,
+            None => return Some(Server::response_error(-32600))
+        };
+        match obj.get("jsonrpc") {
+            Some(o) => match o.as_string() {
+                Some(s) => if s!="2.0" { return Some(Server::response_error(-32600)) },
+                None => return Some(Server::response_error(-32600))                
+            },
+            None => return Some(Server::response_error(-32600))
+        };
+        let str_method = match obj.get("method") {
+            Some(o) => match o.as_string() {
+                Some(s) => s,
+                None => return Some(Server::response_error(-32600))                
+            },
+            None => return Some(Server::response_error(-32600))
+        };
+        let params = match obj.get("params") {
+            Some(o) => match *o {
+                Json::Array(ref v) => Json::Array(v.clone()),
+                Json::Object(ref v) => Json::Object(v.clone()),
+                _ => return Some(Server::response_error(-32600))
+            },
+            None => Json::Null
+        };
+        let id:Option<Json> = match obj.get("id") {
+            Some(o) => match *o {
+                Json::String(ref v) => Some(Json::String(v.clone())),
+                Json::I64(ref v) => Some(Json::I64(v.clone())),
+                Json::U64(ref v) => Some(Json::U64(v.clone())),
+                Json::F64(ref v) => Some(Json::F64(v.clone())),
+                Json::Null => None,
+                _ => return Some(Server::response_error(-32600))
+            },
+            None => None
+        };
+        let f = match self.methods.get(str_method) {
+            Some(o) => o.clone(),
+            None => return Some(Server::response_error(-32601))
+        };        
+        if id.is_some() {
+            let res = f(params);
+            let mut resp_object = BTreeMap::new();
+            resp_object.insert("jsonrpc".to_string(), Json::String("2.0".to_string()));
+            resp_object.insert("id".to_string(), id.unwrap());                
+            match res {
+                Ok(v) => { resp_object.insert("result".to_string(), v); } ,
+                Err(e) => { resp_object.insert("error".to_string(), e.as_object()); }
+            } 
+            Some(Json::Object(resp_object).to_string())
+        } else {
+            Promise::new(move || { f(params) });
+            None
+        }
+    }    
+
+    pub fn request_async<F>(&self, str_request:String, f_response:F) where F: FnOnce(String) + Send + 'static {
         let data = match Json::from_str(&str_request) {
             Ok(o) => o,
             Err(_) => return f_response(Server::response_error(-32700))
@@ -150,7 +230,7 @@ impl Server {
                 Json::I64(ref v) => Some(Json::I64(v.clone())),
                 Json::U64(ref v) => Some(Json::U64(v.clone())),
                 Json::F64(ref v) => Some(Json::F64(v.clone())),
-                Json::Null => Some(Json::Null),
+                Json::Null => None,
                 _ => return f_response(Server::response_error(-32600))
             },
             None => None
@@ -295,14 +375,17 @@ mod test {
             Ok(Json::U64(oper1 - oper2))        
         });
         let str_request = "{\"jsonrpc\":\"2.0\",\"method\":\"Subtract\", \"params\":{\"oper1\":23, \"oper2\":4}, \"id\":1234}".to_string();
-        rpc_server.request(str_request, |str_response| {            
-            let data = Json::from_str(&str_response).unwrap();            
-            assert!(data.is_object());
-            let obj = data.as_object().unwrap();
-            assert_eq!(obj.get("jsonrpc").unwrap().as_string().unwrap(), "2.0");
-            assert_eq!(obj.get("id").unwrap().as_u64().unwrap(), 1234);
-            assert_eq!(obj.get("result").unwrap().as_u64().unwrap(), 19);
-        });
+        match rpc_server.request(str_request) {            
+            Some(str_response) => {
+                let data = Json::from_str(&str_response).unwrap();            
+                assert!(data.is_object());
+                let obj = data.as_object().unwrap();
+                assert_eq!(obj.get("jsonrpc").unwrap().as_string().unwrap(), "2.0");
+                assert_eq!(obj.get("id").unwrap().as_u64().unwrap(), 1234);
+                assert_eq!(obj.get("result").unwrap().as_u64().unwrap(), 19);
+            },
+            None => unreachable!(),
+        };
         thread::sleep_ms(300);
     }
 
@@ -315,14 +398,17 @@ mod test {
             Ok(Json::U64(r))
         });  
         let str_request = "{\"jsonrpc\":\"2.0\",\"method\":\"Multiply\", \"params\":[5, 6, 7], \"id\":\"SEQ456\"}".to_string();
-        rpc_server.request(str_request, |str_response| {            
-            let data = Json::from_str(&str_response).unwrap();            
-            assert!(data.is_object());
-            let obj = data.as_object().unwrap();
-            assert_eq!(obj.get("jsonrpc").unwrap().as_string().unwrap(), "2.0");
-            assert_eq!(obj.get("id").unwrap().as_string().unwrap(), "SEQ456");
-            assert_eq!(obj.get("result").unwrap().as_u64().unwrap(), 210);
-        });
+        match rpc_server.request(str_request) {    
+            Some(str_response) => {
+                let data = Json::from_str(&str_response).unwrap();            
+                assert!(data.is_object());
+                let obj = data.as_object().unwrap();
+                assert_eq!(obj.get("jsonrpc").unwrap().as_string().unwrap(), "2.0");
+                assert_eq!(obj.get("id").unwrap().as_string().unwrap(), "SEQ456");
+                assert_eq!(obj.get("result").unwrap().as_u64().unwrap(), 210);
+            },
+            None => unreachable!(),
+        };
         thread::sleep_ms(300);
     }    
 
@@ -338,14 +424,17 @@ mod test {
             Ok(result)            
         });        
         let str_request = "{\"jsonrpc\":\"2.0\",\"method\":\"Add\", \"params\":{\"oper1\":23, \"oper2\":4}, \"id\":-1.4788}".to_string();
-        rpc_server.request(str_request, |str_response| {            
-            let data = Json::from_str(&str_response).unwrap();            
-            assert!(data.is_object());
-            let obj = data.as_object().unwrap();
-            assert_eq!(obj.get("jsonrpc").unwrap().as_string().unwrap(), "2.0");
-            assert_eq!(obj.get("id").unwrap().as_f64().unwrap(), -1.4788f64);
-            assert_eq!(obj.get("result").unwrap().as_u64().unwrap(), 27);
-        });
+        match rpc_server.request(str_request) {    
+            Some(str_response) => {
+                let data = Json::from_str(&str_response).unwrap();            
+                assert!(data.is_object());
+                let obj = data.as_object().unwrap();
+                assert_eq!(obj.get("jsonrpc").unwrap().as_string().unwrap(), "2.0");
+                assert_eq!(obj.get("id").unwrap().as_f64().unwrap(), -1.4788f64);
+                assert_eq!(obj.get("result").unwrap().as_u64().unwrap(), 27);
+            },
+            None => unreachable!(),
+        };
         thread::sleep_ms(300);
     }
 
@@ -362,19 +451,22 @@ mod test {
             Ok(Json::Array(res))        
         });
         let str_request = "{\"jsonrpc\":\"2.0\",\"method\":\"Sequence\", \"params\":{\"start\":7, \"step\":0.33, \"iterations\":4}, \"id\":1234}".to_string();
-        rpc_server.request(str_request, |str_response| {            
-            let data = Json::from_str(&str_response).unwrap();            
-            assert!(data.is_object());
-            let obj = data.as_object().unwrap();
-            assert_eq!(obj.get("jsonrpc").unwrap().as_string().unwrap(), "2.0");
-            assert_eq!(obj.get("id").unwrap().as_u64().unwrap(), 1234);            
-            let arr = obj.get("result").unwrap().as_array().unwrap();
-            assert_eq!(arr.len(), 4);
-            assert_eq!((arr[0].as_f64().unwrap() * 100f64).round(), 700f64);            
-            assert_eq!((arr[1].as_f64().unwrap() * 100f64).round(), 733f64);            
-            assert_eq!((arr[2].as_f64().unwrap() * 100f64).round(), 766f64);            
-            assert_eq!((arr[3].as_f64().unwrap() * 100f64).round(), 799f64);            
-        });
+        match rpc_server.request(str_request) {    
+            Some(str_response) => {
+                let data = Json::from_str(&str_response).unwrap();            
+                assert!(data.is_object());
+                let obj = data.as_object().unwrap();
+                assert_eq!(obj.get("jsonrpc").unwrap().as_string().unwrap(), "2.0");
+                assert_eq!(obj.get("id").unwrap().as_u64().unwrap(), 1234);            
+                let arr = obj.get("result").unwrap().as_array().unwrap();
+                assert_eq!(arr.len(), 4);
+                assert_eq!((arr[0].as_f64().unwrap() * 100f64).round(), 700f64);            
+                assert_eq!((arr[1].as_f64().unwrap() * 100f64).round(), 733f64);            
+                assert_eq!((arr[2].as_f64().unwrap() * 100f64).round(), 766f64);            
+                assert_eq!((arr[3].as_f64().unwrap() * 100f64).round(), 799f64);            
+            },
+            None => unreachable!(),
+        };
         thread::sleep_ms(300);
     }
 
@@ -401,17 +493,20 @@ mod test {
             Ok(info.to_json())        
         });
         let str_request = "{\"jsonrpc\":\"2.0\",\"method\":\"GetInfo\", \"id\":1234}".to_string();
-        rpc_server.request(str_request, |str_response| {            
-            let data = Json::from_str(&str_response).unwrap();            
-            assert!(data.is_object());
-            let obj = data.as_object().unwrap();
-            assert_eq!(obj.get("jsonrpc").unwrap().as_string().unwrap(), "2.0");
-            assert_eq!(obj.get("id").unwrap().as_u64().unwrap(), 1234);            
-            let ret = obj.get("result").unwrap().as_object().unwrap();
-            assert_eq!(ret.get("amount").unwrap().as_u64().unwrap(), 15);
-            assert_eq!((ret.get("price").unwrap().as_f64().unwrap() * 100f64).round(), 233f64);
-            assert_eq!(ret.get("description").unwrap().as_string().unwrap(), "Apples");
-        });
+        match rpc_server.request(str_request) {    
+            Some(str_response) => {
+                let data = Json::from_str(&str_response).unwrap();            
+                assert!(data.is_object());
+                let obj = data.as_object().unwrap();
+                assert_eq!(obj.get("jsonrpc").unwrap().as_string().unwrap(), "2.0");
+                assert_eq!(obj.get("id").unwrap().as_u64().unwrap(), 1234);            
+                let ret = obj.get("result").unwrap().as_object().unwrap();
+                assert_eq!(ret.get("amount").unwrap().as_u64().unwrap(), 15);
+                assert_eq!((ret.get("price").unwrap().as_f64().unwrap() * 100f64).round(), 233f64);
+                assert_eq!(ret.get("description").unwrap().as_string().unwrap(), "Apples");
+            },
+            None => unreachable!(),
+        };
         thread::sleep_ms(300);
     }
 
@@ -427,18 +522,21 @@ mod test {
             }        
         }); 
         let str_request = "{\"jsonrpc\":\"2.0\",\"method\":\"Division\", \"params\":{\"oper1\":23, \"oper2\":0}, \"id\":4}".to_string();
-        rpc_server.request(str_request, |str_response| {    
-            let data = Json::from_str(&str_response).unwrap();     
-            assert!(data.is_object());
-            let obj = data.as_object().unwrap();
-            assert_eq!(obj.get("jsonrpc").unwrap().as_string().unwrap(), "2.0");
-            assert_eq!(obj.get("id").unwrap().as_u64().unwrap(), 4);
-            assert!(obj.get("error").unwrap().is_object());
-            let err = obj.get("error").unwrap().as_object().unwrap();
-            assert_eq!(err.get("code").unwrap().as_i64().unwrap(), 784);
-            assert_eq!(err.get("message").unwrap().as_string().unwrap(), "Division by zero");
-            assert_eq!(err.get("data").unwrap().as_f64().unwrap(), 23f64);
-        });
+        match rpc_server.request(str_request) {    
+            Some(str_response) => {
+                let data = Json::from_str(&str_response).unwrap();     
+                assert!(data.is_object());
+                let obj = data.as_object().unwrap();
+                assert_eq!(obj.get("jsonrpc").unwrap().as_string().unwrap(), "2.0");
+                assert_eq!(obj.get("id").unwrap().as_u64().unwrap(), 4);
+                assert!(obj.get("error").unwrap().is_object());
+                let err = obj.get("error").unwrap().as_object().unwrap();
+                assert_eq!(err.get("code").unwrap().as_i64().unwrap(), 784);
+                assert_eq!(err.get("message").unwrap().as_string().unwrap(), "Division by zero");
+                assert_eq!(err.get("data").unwrap().as_f64().unwrap(), 23f64);
+            },
+            None => unreachable!(),
+        };
         thread::sleep_ms(300);
     }
 
@@ -449,17 +547,20 @@ mod test {
             Ok(Json::U64(oper1 - oper2))        
         });
         let str_request = "{\"jsonrpc\":\"2.0\",\"method\":\"Add\", \"params\":{\"oper1\":23, \"oper2\":4}, \"id\":1234}".to_string();
-        rpc_server.request(str_request, |str_response| {            
-            let data = Json::from_str(&str_response).unwrap();            
-            assert!(data.is_object());
-            let obj = data.as_object().unwrap();
-            assert_eq!(obj.get("jsonrpc").unwrap().as_string().unwrap(), "2.0");
-            assert_eq!(obj.get("id").unwrap().as_null().unwrap(), ());
-            assert!(obj.get("error").unwrap().is_object());
-            let err = obj.get("error").unwrap().as_object().unwrap();
-            assert_eq!(err.get("code").unwrap().as_i64().unwrap(), -32601);
-            assert_eq!(err.get("message").unwrap().as_string().unwrap(), "Method not found");
-        });
+        match rpc_server.request(str_request) {    
+            Some(str_response) => {
+                let data = Json::from_str(&str_response).unwrap();            
+                assert!(data.is_object());
+                let obj = data.as_object().unwrap();
+                assert_eq!(obj.get("jsonrpc").unwrap().as_string().unwrap(), "2.0");
+                assert_eq!(obj.get("id").unwrap().as_null().unwrap(), ());
+                assert!(obj.get("error").unwrap().is_object());
+                let err = obj.get("error").unwrap().as_object().unwrap();
+                assert_eq!(err.get("code").unwrap().as_i64().unwrap(), -32601);
+                assert_eq!(err.get("message").unwrap().as_string().unwrap(), "Method not found");
+            },
+            None => unreachable!(),
+        };
         thread::sleep_ms(300);
     }    
 }

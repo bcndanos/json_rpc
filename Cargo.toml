@@ -12,8 +12,17 @@ keywords = ["json", "rpc"]
 asynchronous = "*"
 rustc-serialize = "0.3.15"
 
+[dev-dependencies]
+hyper = "*"
+
 [[example]]
 name = "basic"
 path = "examples/basic.rs"
+test = false
+bench = false
+
+[[example]]
+name = "http_server"
+path = "examples/http_server.rs"
 test = false
 bench = false
