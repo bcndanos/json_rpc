@@ -10,6 +10,25 @@
 
 Currently in development. Look at the examples in ./examples for more information.
 
+##Todo Items
+
+## [0.2.0]
+- [X] Server side
+
+## [0.3.0]
+- [ ] Client side
+- [ ] Refactor server code
+
+## [0.4.0]
+- [ ] Allow batch requests
+- [ ] Parallel or series execution of batch requests
+
+## [1.0.0]
+- [ ] Full documentation and examples
+
+## [2.0.0]
+- [ ]  json-rpc 1.0
+
 #License
 
 Dual-licensed to be compatible with the Rust project.
