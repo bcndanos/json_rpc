@@ -63,9 +63,7 @@ fn main() {
 */
 
 extern crate asynchronous;
-extern crate rustc_serialize;
-
-pub use rustc_serialize as serialize;
+pub extern crate rustc_serialize as serialize;
 
 use asynchronous::{Deferred, Promise};
 use std::collections::BTreeMap;
